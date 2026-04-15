@@ -1,0 +1,12 @@
+.DS_Store
+.claude/
+.codex
+.mise.local.toml
+.env
+.env.local
+.env.*.local
+node_modules/
+.venv/
+vendor/bundle/
+target/
+.gradle/
