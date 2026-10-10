@@ -12,18 +12,21 @@ Steam stores Proton/Wine prefixes (`compatdata`) inside the game library folder.
 
 ## How It Works
 
-Uses [bubblewrap](https://github.com/containers/bubblewrap) to create a per-user kernel overlay on `/opt/steam/steamapps/compatdata/`:
+Uses [bubblewrap](https://github.com/containers/bubblewrap) to bind a per-user directory onto `/opt/steam/steamapps/compatdata/`:
 
 - **Game files** (`common/`, `shadercache/`) → shared directly, readable and writable by all group members
-- **Proton prefixes** (`compatdata/`) → overlaid per-user via bwrap's mount namespace
+- **Proton prefixes** (`compatdata/`) → private per-user directory via bwrap's mount namespace
+- **Temporary files** (`/tmp`) → private tmpfs per Steam session; X11 sockets and temporary Xauthority remain accessible
 
-Each user gets their own overlay. Writes go to `~/.local/share/steam-shared/upper/`. Reads fall through to the shared directory. Multiple users can be logged in simultaneously (GDM user switching) — each session has its own isolated mount namespace.
+Each user's prefixes live in `~/.local/share/steam-shared/compatdata/`. Shared prefixes are not inherited. Multiple users can be logged in simultaneously (GDM user switching) — each session has its own isolated mount namespace.
+
+Existing overlay state is not imported automatically. Before switching an existing installation, preserve its saves and Wine metadata separately. Old directories remain untouched.
 
 **No compatibility tool selection. No per-game configuration. Works with any Proton variant.**
 
 ## Prerequisites
 
-- Linux with a modern kernel (overlay support)
+- Linux with unprivileged user namespace support
 - `bubblewrap` (`pacman -S bubblewrap` / `apt install bubblewrap`)
 - `acl` package for `setfacl` (usually pre-installed)
 - Steam (native package or Flatpak)
@@ -82,19 +85,17 @@ The Steam launcher (`steam-shared`) does:
 
 1. Verify prerequisites (shared dir exists, user in steamshare group, bwrap installed)
 2. Detect Steam installation (native or Flatpak)
-3. Create per-user overlay directories (`~/.local/share/steam-shared/{upper,work}`)
-4. Launch Steam inside a bwrap mount namespace with an overlay on `compatdata/`
+3. Create per-user `~/.local/share/steam-shared/compatdata/`
+4. Launch Steam inside a bwrap mount namespace with that directory bound onto `compatdata/`
 
 ```
 bwrap --dev-bind / / \
-    --overlay-src /opt/steam/steamapps/compatdata \
-    --overlay ~/.local/share/steam-shared/upper \
-             ~/.local/share/steam-shared/work \
-             /opt/steam/steamapps/compatdata \
+    --bind ~/.local/share/steam-shared/compatdata \
+           /opt/steam/steamapps/compatdata \
     -- steam
 ```
 
-Inside the namespace, any write to `/opt/steam/steamapps/compatdata/` goes to the per-user upper layer. The shared lower layer is read-only from the overlay's perspective. Game files outside `compatdata/` are not overlaid — they're shared normally.
+Inside the namespace, reads and writes to `/opt/steam/steamapps/compatdata/` use only the user's directory. Game files outside `compatdata/` remain shared. This protects Steam's own prefix writes as well as Proton's.
 
 ## Caveats
 
@@ -116,4 +117,4 @@ This project originally used a Proton compatibility tool wrapper to redirect `ST
 - Per-game Proton overrides bypassed the wrapper entirely
 - Steam sometimes wrote to the original path before the wrapper ran
 
-The bwrap overlay approach solves all of these by operating at the filesystem level, below Steam and Proton.
+Filesystem-level bwrap isolation solves all of these, below Steam and Proton. Earlier versions used an overlay with shared prefixes as its lower layer. Inherited root-owned files could fail during Proton updates inside an unprivileged user namespace (`OSError: [Errno 75] Value too large for defined data type`). Binding fully user-owned prefixes avoids that inheritance while keeping game files shared.

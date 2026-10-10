@@ -38,21 +38,8 @@ setfacl -R -m g:"$STEAM_GROUP":rwx "$STEAM_DIR"
 setfacl -dR -m g:"$STEAM_GROUP":rwx "$STEAM_DIR"
 echo "  $STEAM_DIR ready (setgid + ACLs)"
 
-echo "[3/7] Clean stale compatdata prefixes"
-# Only wipe compatdata contents on first activation. Re-running activate.sh
-# on a live system would otherwise delete every user's Proton prefixes
-# (they live inside compatdata/<appid>/pfx, not in the per-user overlay
-# until the game is launched at least once under the shared-library setup).
-# A launcher at /usr/local/bin/steam-shared is proof the system has been
-# activated before — skip the wipe in that case.
-if [[ -e /usr/local/bin/steam-shared ]]; then
-	echo "  skipped (steam-shared already installed — refusing to wipe live prefixes)"
-else
-	# remove all contents inside compatdata app dirs (not the dirs themselves —
-	# Steam recreates empty ones and they're harmless as lower-layer placeholders)
-	find "$STEAM_DIR/steamapps/compatdata" -mindepth 2 -delete 2>/dev/null || true
-	echo "  compatdata cleaned"
-fi
+echo "[3/7] Preserve existing compatdata prefixes"
+echo "  shared prefixes retained; launcher uses private per-user prefixes"
 
 echo "[4/7] Install launcher"
 install -m 755 "$PROJECT_DIR/scripts/steam-shared.sh" /usr/local/bin/steam-shared
