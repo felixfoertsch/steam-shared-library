@@ -1,18 +1,16 @@
 #!/usr/bin/env bash
 # steam-shared — launch Steam with per-user Proton prefix isolation
 #
-# Uses bubblewrap to overlay /opt/steam/steamapps/compatdata/ with a
-# per-user directory. Writes (Proton prefixes) go to the user's home,
-# reads fall through to the shared library. Each user gets their own
-# mount namespace — concurrent sessions are fully isolated.
+# Bind per-user Proton prefixes over shared library's compatdata path.
+# Do not inherit shared prefixes: their ownership breaks Proton updates
+# inside unprivileged user namespaces. Game files remain shared.
 
 set -euo pipefail
 
 SHARED_LIBRARY="/opt/steam"
 SHARED_COMPATDATA="$SHARED_LIBRARY/steamapps/compatdata"
-OVERLAY_DIR="$HOME/.local/share/steam-shared"
-OVERLAY_UPPER="$OVERLAY_DIR/upper"
-OVERLAY_WORK="$OVERLAY_DIR/work"
+STATE_DIR="$HOME/.local/share/steam-shared"
+USER_COMPATDATA="$STATE_DIR/compatdata"
 
 # --- preflight checks ---
 
@@ -48,21 +46,26 @@ else
 	exit 1
 fi
 
-# --- set up per-user overlay dirs ---
+mkdir -p "$USER_COMPATDATA"
 
-mkdir -p "$OVERLAY_UPPER" "$OVERLAY_WORK"
-
-# clean stale overlayfs work dir (causes "Device or resource busy")
-# overlayfs sets work/work to mode 0000 — must chmod before removing
-if [[ -d "$OVERLAY_WORK/work" ]]; then
-	chmod -R u+rwx "$OVERLAY_WORK/work" 2>/dev/null
-	rm -rf "$OVERLAY_WORK/work"
+# Native games keep single-instance locks in /tmp; never share those across users.
+# Retain desktop authentication and X11 sockets while hiding host temporary files.
+TMP_BINDS=()
+if [[ -d /tmp/.X11-unix ]]; then
+	TMP_BINDS+=(--ro-bind /tmp/.X11-unix /tmp/.X11-unix)
 fi
-
-# --- launch Steam inside bwrap with overlay ---
+if [[ ${XAUTHORITY:-} == /tmp/* ]]; then
+	if [[ ! -f "$XAUTHORITY" ]]; then
+		echo "steam-shared: temporary Xauthority file is missing" >&2
+		exit 1
+	fi
+	TMP_BINDS+=(--ro-bind "$XAUTHORITY" "$XAUTHORITY")
+fi
 
 exec bwrap \
 	--dev-bind / / \
-	--overlay-src "$SHARED_COMPATDATA" \
-	--overlay "$OVERLAY_UPPER" "$OVERLAY_WORK" "$SHARED_COMPATDATA" \
+	--bind "$USER_COMPATDATA" "$SHARED_COMPATDATA" \
+	--tmpfs /tmp \
+	--setenv TMPDIR /tmp \
+	"${TMP_BINDS[@]}" \
 	-- "${STEAM_CMD[@]}" "$@"

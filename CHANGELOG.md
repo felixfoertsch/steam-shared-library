@@ -2,6 +2,17 @@
 
 All notable changes are documented in this file.
 
+## 2026.10.10
+
+### Changed
+- Bind fully per-user Proton prefixes instead of inheriting shared prefix files.
+- Isolate temporary files per Steam session while preserving X11 access.
+- Preserve shared prefix contents during activation.
+
+### Notes
+- Existing overlay state is not imported automatically; preserve saves and Wine extended attributes before switching.
+- Verified concurrent native Dota 2 launches under two users sharing one game installation.
+
 ## 2026.04.15
 
 ### Added
